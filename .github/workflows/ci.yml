@@ -8,21 +8,21 @@ permissions:
 jobs:
   native:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       CARGO_BUILD_JOBS: "2"
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
       RUST_TEST_THREADS: "1"
       WGPU_BACKEND: vulkan
-      EXPECTED_SOURCE_SHA: "67e4ba66f05375b702c77a74e5e837bc64b5e748"
+      EXPECTED_SOURCE_SHA: "bf8e5ee82f5c1987652389c03acfb75c1bd893dc"
       CARGO_CACHE_AUTO_CLEAN_FREQUENCY: "never"
       NEXTEST_TEST_THREADS: "1"
       RUST_BACKTRACE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: "67e4ba66f05375b702c77a74e5e837bc64b5e748"
+          ref: "bf8e5ee82f5c1987652389c03acfb75c1bd893dc"
           persist-credentials: false
       - name: Prepare runtime environment before tool setup
         shell: bash
@@ -63,11 +63,55 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
           install -d -m 700 "$TMPDIR" "$XDG_RUNTIME_DIR" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$EVIDENCE_DIR"
           mkdir -p qa-output artifacts
-      - name: "Capture native FigApp provider and local files"
+      - name: "Format before compilation"
         shell: bash
         run: |
           set -euo pipefail
-          timeout 60m cargo test --locked -p figcraft-ui-egui --test it recent_file_names::provider_recents_render_separately_from_device_history -- --exact --test-threads=1
+          timeout 5m cargo fmt --all -- --check
+      - name: "Clippy of all affected native targets"
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 55m cargo clippy --locked -p figcraft-ui-egui -p figcraft-web -p figcraft-engine --all-targets --keep-going -j2 -- -D warnings
+      - name: "Prove the account-switch regression fails without the reset"
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 45m python3 - <<'PY'
+          import os,pathlib,re,subprocess
+          p=pathlib.Path('crates/ui-egui/src/file_providers.rs')
+          original=p.read_bytes()
+          text=original.decode('utf-8')
+          start=text.index('pub fn disconnect(')
+          end=text.index('\n    }',start)
+          body=text[start:end]
+          reset='        s.documents = Value::Null;'
+          assert body.count(reset)==1, 'Expected one document-cache reset in disconnect'
+          mutated=text[:start]+body.replace(reset,'',1)+text[end:]
+          env=dict(os.environ,CARGO_TERM_COLOR='never')
+          try:
+              p.write_bytes(mutated.encode('utf-8'))
+              result=subprocess.run(['cargo','test','--locked','-p','figcraft-ui-egui','--lib','file_providers::tests::unregister_clears_cached_account_documents_before_reconnect','-j2','--','--exact','--test-threads=1'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,env=env,timeout=2400)
+              (pathlib.Path(os.environ['EVIDENCE_DIR'])/'account-reset-negative.log').write_text(result.stdout)
+              expected='test file_providers::tests::unregister_clears_cached_account_documents_before_reconnect ... FAILED'
+              assert result.returncode!=0 and expected in result.stdout, 'Negative control must fail in the actual regression, not compilation or a missing test: '+result.stdout[-10000:]
+              print('Confirmed regression fails without the published disconnect reset: file_providers::tests::unregister_clears_cached_account_documents_before_reconnect')
+              print(result.stdout[-5000:])
+          finally:
+              p.write_bytes(original)
+          assert p.read_bytes()==original
+          subprocess.run(['git','diff','--exit-code','--','crates/ui-egui/src/file_providers.rs'],check=True)
+          PY
+      - name: "All affected native tests on restored published source"
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 65m cargo test --locked -p figcraft-ui-egui -p figcraft-web -p figcraft-engine --lib --bins --tests -j2 -- --test-threads=1
+      - name: "Actual browser WASM package"
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 40m cargo check --locked -p figcraft-web --target wasm32-unknown-unknown -j2
       - name: Verify native evidence and source identity
         shell: bash
         run: |
@@ -100,7 +144,7 @@ jobs:
       - name: Upload two native captures and provenance
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: provider-ui-figcraft-67e4ba66f053
+          name: provider-ui-figcraft-bf8e5ee82f5c
           path: |
             ${{ runner.temp }}/provider-evidence/figcraft-provider-recents-off.png
             ${{ runner.temp }}/provider-evidence/figcraft-provider-recents-on.png
