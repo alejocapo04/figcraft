@@ -15,14 +15,14 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
       RUST_TEST_THREADS: "1"
       WGPU_BACKEND: vulkan
-      EXPECTED_SOURCE_SHA: "bf8e5ee82f5c1987652389c03acfb75c1bd893dc"
+      EXPECTED_SOURCE_SHA: "3dd7197300cad2c8c4474e2c0c8c0ce0cdb08961"
       CARGO_CACHE_AUTO_CLEAN_FREQUENCY: "never"
       NEXTEST_TEST_THREADS: "1"
       RUST_BACKTRACE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: "bf8e5ee82f5c1987652389c03acfb75c1bd893dc"
+          ref: "3dd7197300cad2c8c4474e2c0c8c0ce0cdb08961"
           persist-credentials: false
       - name: Prepare runtime environment before tool setup
         shell: bash
@@ -144,7 +144,7 @@ jobs:
       - name: Upload two native captures and provenance
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: provider-ui-figcraft-bf8e5ee82f5c
+          name: provider-ui-figcraft-3dd7197300ca
           path: |
             ${{ runner.temp }}/provider-evidence/figcraft-provider-recents-off.png
             ${{ runner.temp }}/provider-evidence/figcraft-provider-recents-on.png
